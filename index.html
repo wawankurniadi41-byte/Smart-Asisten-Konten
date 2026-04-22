@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Asisten Konten Kreator</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Marked.js for Markdown parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- FontAwesome for Brand Logos -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        tiktok: '#00f2fe',
+                        ig: '#E1306C',
+                        yt: '#FF0000',
+                        fb: '#1877F2',
+                        brand: '#6366f1' // Indigo
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom scrollbar for better look */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #c7c7cc; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #a1a1aa; }
+        
+        /* Markdown formatting styles */
+        .prose h1, .prose h2, .prose h3 { margin-top: 1.5em; margin-bottom: 0.5em; font-weight: bold; color: #111827; }
+        .prose p { margin-bottom: 1em; line-height: 1.6; color: #374151; }
+        .prose ul { list-style-type: disc; padding-left: 1.5em; margin-bottom: 1em; }
+        .prose li { margin-bottom: 0.5em; }
+        .prose strong { color: #111827; font-weight: 600; }
+        .prose hr { margin: 2em 0; border-color: #e5e7eb; }
+        
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans min-h-screen flex flex-col">
+
+    <!-- Header -->
+    <header class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg relative z-10">
+        <div class="max-w-3xl mx-auto px-4 py-6 text-center">
+            <h1 class="text-3xl font-extrabold flex items-center justify-center gap-2">
+                <i data-lucide="sparkles" class="text-yellow-300"></i>
+                Smart Asisten Konten
+            </h1>
+            <p class="text-indigo-100 mt-2 font-medium text-lg">Bantu kebutuhan konten mu, Capai Monetisasi ! 🚀</p>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-grow max-w-3xl w-full mx-auto p-4 flex flex-col relative" id="app-container">
+        <!-- Views will be injected here via JS -->
+    </main>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="hidden fixed inset-0 bg-white/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-indigo-600 mb-4"></div>
+        <p class="text-lg font-semibold text-indigo-700 animate-pulse" id="loading-text">Sedang memikirkan ide brilian...</p>
+    </div>
+
+    <script>
+        // --- API Configuration ---
+        const apiKey = ""; // Diisi otomatis oleh environment
+        
+        async function callGeminiAPI(prompt, isJson = false) {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                systemInstruction: {
+                    parts: [{ text: "Kamu adalah AI Product Engineer, AI Content Strategist, dan UX Writer kelas dunia." }]
+                }
+            };
+
+            if (isJson) {
+                payload.generationConfig = { responseMimeType: "application/json" };
+            }
+
+            const delays = [1000, 2000, 4000, 8000, 16000];
+            let attempt = 0;
+
+            while (attempt < delays.length + 1) {
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                    
+                    if (!text) throw new Error("Format respons tidak valid");
+
+                    return isJson ? JSON.parse(text) : text;
+
+                } catch (error) {
+                    attempt++;
+                    if (attempt > delays.length) {
+                        console.error("API Error:", error);
+                        throw new Error("Gagal terhubung ke AI. Silakan coba lagi.");
+                    }
+                    await new Promise(resolve => setTimeout(resolve, delays[attempt - 1]));
+                }
+            }
+        }
+
+        // --- State Management ---
+        const state = {
+            view: 'home', // home, platform, titles, duration, result
+            platform: null,
+            niche: '',
+            titles: [],
+            selectedTitle: '',
+            selectedDuration: '30s',
+            scriptContent: ''
+        };
+
+        const platformsInfo = {
+            'Facebook': { color: 'bg-blue-600', hover: 'hover:bg-blue-700', iconHtml: '<i class="fa-brands fa-facebook-f text-3xl"></i>', iconHtmlSmall: '<i class="fa-brands fa-facebook-f text-xl"></i>', desc: 'Relatable & Shareable' },
+            'TikTok': { color: 'bg-black', hover: 'hover:bg-gray-800', iconHtml: '<i class="fa-brands fa-tiktok text-3xl"></i>', iconHtmlSmall: '<i class="fa-brands fa-tiktok text-xl"></i>', desc: 'Fast Hook & High Retention' },
+            'Instagram': { color: 'bg-pink-600', hover: 'hover:bg-pink-700', iconHtml: '<i class="fa-brands fa-instagram text-3xl"></i>', iconHtmlSmall: '<i class="fa-brands fa-instagram text-xl"></i>', desc: 'Visual Storytelling' },
+            'YouTube': { color: 'bg-red-600', hover: 'hover:bg-red-700', iconHtml: '<i class="fa-brands fa-youtube text-3xl"></i>', iconHtmlSmall: '<i class="fa-brands fa-youtube text-xl"></i>', desc: 'SEO & Watch Time' }
+        };
+
+        // --- UI Rendering Functions ---
+        const container = document.getElementById('app-container');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const loadingText = document.getElementById('loading-text');
+
+        function showLoading(text) {
+            loadingText.innerText = text;
+            loadingOverlay.classList.remove('hidden');
+        }
+
+        function hideLoading() {
+            loadingOverlay.classList.add('hidden');
+        }
+
+        function render() {
+            container.innerHTML = '';
+            // Re-initialize lucide icons after rendering
+            setTimeout(() => lucide.createIcons(), 0);
+
+            switch (state.view) {
+                case 'home': renderHome(); break;
+                case 'platform': renderPlatformForm(); break;
+                case 'titles': renderTitlesList(); break;
+                case 'duration': renderDurationSelect(); break;
+                case 'result': renderScriptResult(); break;
+            }
+        }
+
+        function createBackButton(targetView) {
+            return `
+                <button onclick="navigate('${targetView}')" class="flex items-center text-gray-500 hover:text-indigo-600 font-medium mb-4 transition-colors">
+                    <i data-lucide="arrow-left" class="w-5 h-5 mr-1"></i> Kembali
+                </button>
+            `;
+        }
+
+        function navigate(targetView) {
+            state.view = targetView;
+            render();
+        }
+
+        // 1. HALAMAN BERANDA
+        function renderHome() {
+            let html = `
+                <div class="fade-in mt-4 flex flex-col items-center">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-6">Mau posting apa hari ini? 🎯</h2>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
+            `;
+
+            for (const [name, info] of Object.entries(platformsInfo)) {
+                html += `
+                    <button onclick="selectPlatform('${name}')" 
+                            class="flex flex-col items-center justify-center p-6 bg-white rounded-2xl shadow-sm hover:shadow-md border border-gray-100 transition-all transform hover:-translate-y-1">
+                        <div class="w-16 h-16 ${info.color} text-white rounded-full flex items-center justify-center mb-4 shadow-inner">
+                            ${info.iconHtml}
+                        </div>
+                        <span class="text-xl font-bold text-gray-800 mb-1">${name}</span>
+                        <span class="text-sm text-gray-500">${info.desc}</span>
+                    </button>
+                `;
+            }
+
+            html += `</div></div>`;
+            container.innerHTML = html;
+        }
+
+        function selectPlatform(platform) {
+            state.platform = platform;
+            state.niche = ''; // reset
+            navigate('platform');
+        }
+
+        // 2. HALAMAN PLATFORM
+        function renderPlatformForm() {
+            const platformInfo = platformsInfo[state.platform];
+            const html = `
+                <div class="fade-in bg-white rounded-3xl shadow-sm border border-gray-100 p-6 md:p-8 mt-4">
+                    ${createBackButton('home')}
+                    
+                    <div class="flex items-center gap-3 mb-6 border-b pb-4">
+                        <div class="w-12 h-12 ${platformInfo.color} text-white rounded-xl flex items-center justify-center">
+                            ${platformInfo.iconHtmlSmall}
+                        </div>
+                        <div>
+                            <h2 class="text-2xl font-bold text-gray-800">Strategi ${state.platform}</h2>
+                            <p class="text-gray-500 text-sm">Fokus: ${platformInfo.desc}</p>
+                        </div>
+                    </div>
+
+                    <div class="space-y-4">
+                        <label class="block text-gray-700 font-semibold mb-2">
+                            Apa Niche / Topik Kontenmu?
+                            <span class="block text-xs font-normal text-gray-400 mt-1">Contoh: Edukasi Keuangan, Skincare Pemula, Review Gadget, Tips Bisnis</span>
+                        </label>
+                        <input type="text" id="niche-input" value="${state.niche}"
+                            class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-lg"
+                            placeholder="Ketik topik di sini...">
+                        
+                        <button onclick="generateTitles()" 
+                            class="w-full mt-6 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white font-bold py-4 px-6 rounded-xl shadow-lg hover:shadow-xl transition-all flex justify-center items-center gap-2">
+                            <i data-lucide="zap"></i> Tentukan Kontenmu
+                        </button>
+                    </div>
+                </div>
+            `;
+            container.innerHTML = html;
+        }
+
+        // 3. LOGIKA: TENTUKAN KONTENMU (API Call)
+        async function generateTitles() {
+            const nicheInput = document.getElementById('niche-input').value.trim();
+            if (!nicheInput) {
+                alert("Mohon masukkan niche atau topik konten Anda.");
+                return;
+            }
+            state.niche = nicheInput;
+
+            showLoading(`Menganalisis algoritma ${state.platform} untuk niche "${state.niche}"...`);
+
+            const prompt = `
+Kamu adalah AI Content Strategist ahli viralitas.
+Tugasmu: Berikan 3 ide judul konten super viral untuk platform ${state.platform} dengan niche: "${state.niche}".
+
+ATURAN JUDUL WAJIB:
+1. Punya HOOK kuat (shock value, bikin penasaran, atau memecahkan problem besar).
+2. Mengandung SEO Keyword tersembunyi yang relevan.
+3. Click-worthy (membuat orang tidak bisa menahan diri untuk klik/nonton).
+4. Sesuai dengan gaya bahasa dan format ${state.platform}.
+
+Format balasan HARUS JSON berupa array of strings. 
+Contoh output yang valid:
+[
+  "Judul ide pertama yang sangat menarik",
+  "Judul ide kedua yang bikin penasaran",
+  "Judul ide ketiga dengan problem solving"
+]
+
+HANYA KEMBALIKAN JSON ARRAY SAJA. Tanpa markdown, tanpa teks pengantar.
+`;
+
+            try {
+                const response = await callGeminiAPI(prompt, true);
+                if (Array.isArray(response) && response.length > 0) {
+                    state.titles = response.slice(0, 3); // Pastikan hanya 3
+                    navigate('titles');
+                } else {
+                    throw new Error("Format respons tidak sesuai");
+                }
+            } catch (error) {
+                alert(error.message);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // Tampilkan 3 Judul
+        function renderTitlesList() {
+            let html = `
+                <div class="fade-in mt-4">
+                    ${createBackButton('platform')}
+                    <h2 class="text-2xl font-bold text-gray-800 mb-2">Pilih Judul Jagoanmu 🔥</h2>
+                    <p class="text-gray-600 mb-6">Berikut 3 ide terbaik yang dioptimasi untuk algoritma ${state.platform}.</p>
+                    
+                    <div class="space-y-4">
+            `;
+
+            state.titles.forEach((title, index) => {
+                html += `
+                    <button onclick="selectTitle('${title.replace(/'/g, "\\'")}')" 
+                        class="w-full text-left p-5 bg-white border-2 border-gray-100 rounded-2xl hover:border-indigo-400 hover:shadow-md transition-all group relative overflow-hidden">
+                        <div class="absolute left-0 top-0 bottom-0 w-1 bg-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                        <div class="flex items-start gap-3">
+                            <span class="bg-indigo-100 text-indigo-700 font-bold px-3 py-1 rounded-lg text-sm mt-0.5">Opsi ${index + 1}</span>
+                            <h3 class="text-lg font-bold text-gray-800 leading-snug group-hover:text-indigo-700 transition-colors">${title}</h3>
+                        </div>
+                    </button>
+                `;
+            });
+
+            html += `
+                    </div>
+                </div>
+            `;
+            container.innerHTML = html;
+        }
+
+        function selectTitle(title) {
+            state.selectedTitle = title;
+            navigate('duration');
+        }
+
+        // 4. SAAT USER PILIH JUDUL -> PILIH DURASI
+        function renderDurationSelect() {
+            const durations = [
+                { id: '15s', label: '15 Detik', desc: '30-50 kata (Fast Paced)' },
+                { id: '30s', label: '30 Detik', desc: '60-90 kata (Standar)' },
+                { id: '45s', label: '45 Detik', desc: '90-120 kata (Edukasi Singkat)' },
+                { id: '60s', label: '60 Detik', desc: '120-150 kata (Storytelling)' },
+                { id: '>1m', label: '> 1 Menit', desc: '150-300 kata (Deep Dive)' }
+            ];
+
+            let html = `
+                <div class="fade-in bg-white rounded-3xl shadow-sm border border-gray-100 p-6 md:p-8 mt-4">
+                    ${createBackButton('titles')}
+                    
+                    <div class="mb-6 p-4 bg-gray-50 rounded-xl border border-gray-200">
+                        <span class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1 block">Judul Terpilih:</span>
+                        <p class="text-lg font-bold text-gray-800">${state.selectedTitle}</p>
+                    </div>
+
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">Pilih Target Durasi Video ⏱️</h3>
+                    
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-8">
+            `;
+
+            durations.forEach(d => {
+                const isSelected = state.selectedDuration === d.id;
+                const activeClass = isSelected ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-200' : 'border-gray-200 hover:border-indigo-300 bg-white';
+                
+                html += `
+                    <div onclick="setDuration('${d.id}')" 
+                        class="cursor-pointer border-2 rounded-xl p-4 transition-all ${activeClass}">
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="font-bold text-gray-800">${d.label}</span>
+                            ${isSelected ? '<i data-lucide="check-circle-2" class="text-indigo-600 w-5 h-5"></i>' : '<div class="w-5 h-5 rounded-full border-2 border-gray-300"></div>'}
+                        </div>
+                        <span class="text-xs text-gray-500">${d.desc}</span>
+                    </div>
+                `;
+            });
+
+            html += `
+                    </div>
+                    
+                    <button onclick="generateScript()" 
+                        class="w-full bg-gradient-to-r from-green-500 to-teal-600 hover:from-green-600 hover:to-teal-700 text-white font-bold py-4 px-6 rounded-xl shadow-lg hover:shadow-xl transition-all flex justify-center items-center gap-2 text-lg">
+                        <i data-lucide="clapperboard"></i> Hasilkan Skrip & Strategi
+                    </button>
+                </div>
+            `;
+            container.innerHTML = html;
+        }
+
+        function setDuration(duration) {
+            state.selectedDuration = duration;
+            renderDurationSelect(); // re-render to update selection style
+        }
+
+        // 5. LOGIKA: HASILKAN SKRIP (API Call)
+        async function generateScript() {
+            showLoading(`Meracik skrip ajaib untuk durasi ${state.selectedDuration}...`);
+
+            const prompt = `
+Kamu adalah AI Product Engineer, Content Strategist, & UX Writer.
+Tugasmu menulis SCRIPT VIDEO siap rekam dan STRATEGI POSTING berdasarkan data berikut.
+
+Platform: ${state.platform}
+Niche: ${state.niche}
+Judul Terpilih: ${state.selectedTitle}
+Durasi Target: ${state.selectedDuration}
+
+ATURAN PANJANG KATA SCRIPT WAJIB DIPATUHI:
+- 15s: 30-50 kata
+- 30s: 60-90 kata
+- 45s: 90-120 kata
+- 60s: 120-150 kata
+- >1 menit: 150-300 kata
+(Total kata di bagian SCRIPT harus sesuai rentang untuk ${state.selectedDuration})
+
+GAYA BAHASA: 
+- Natural seperti content creator berbicara di depan kamera.
+- Tidak kaku / robotik.
+- Persuasif & engaging.
+- Optimasi platform (TikTok: cepat, IG: story, YT: informatif, FB: relatable).
+
+FORMAT OUTPUT WAJIB (Gunakan Markdown agar rapi, gunakan emoji sesuai contoh):
+
+### 🎥 SCRIPT VIDEO
+**Judul:** ${state.selectedTitle}
+**Platform:** ${state.platform}
+**Durasi:** ${state.selectedDuration}
+
+---
+
+**🧲 HOOK (0–3 detik)**
+[Tulis 1-2 kalimat pembuka super kuat untuk stop scroll langsung ke intinya]
+
+**🤔 BUILD CURIOSITY**
+[Bangun rasa penasaran, validasi problem, atau tunjukkan gap informasi]
+
+**💡 ISI / VALUE**
+[Isi utama konten yang padat daging. Gunakan listicle atau bullet point agar mudah dibaca kreator saat rekaman]
+
+**🔥 CLOSING + CTA**
+[Ajak interaksi yang spesifik: follow / komen pendapat / share / save / klik link]
+
+**🏷️ HASHTAG**
+[Tulis 5-10 hashtag relevan, campuran SEO, niche, dan trending]
+
+---
+
+### 📊 STRATEGI POSTING
+**Waktu Terbaik:** [Berikan range jam spesifik, contoh: 19.00 - 21.00]
+**Hari Terbaik:** [Berikan 2-3 hari terbaik]
+**Alasan:** [Jelaskan singkat berdasarkan behavior audiens niche ini di ${state.platform}]
+
+**Tips Tambahan:**
+- [Tip praktis 1 terkait visual/audio]
+- [Tip praktis 2 terkait caption/engagement]
+- [Tip praktis 3]
+`;
+
+            try {
+                const responseText = await callGeminiAPI(prompt, false);
+                state.scriptContent = responseText;
+                navigate('result');
+            } catch (error) {
+                alert(error.message);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // Tampilkan Hasil Skrip
+        function renderScriptResult() {
+            // Configure marked to use <br> for newlines inside paragraphs
+            marked.setOptions({ breaks: true });
+            
+            const htmlParsed = marked.parse(state.scriptContent);
+
+            const html = `
+                <div class="fade-in mt-4 flex flex-col h-full">
+                    <div class="flex justify-between items-center mb-4">
+                        ${createBackButton('duration')}
+                        <button onclick="copyToClipboard()" id="copy-btn" class="flex items-center gap-2 bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg font-medium transition-colors">
+                            <i data-lucide="copy" class="w-4 h-4"></i> <span id="copy-text">Salin Teks</span>
+                        </button>
+                    </div>
+                    
+                    <div class="bg-white rounded-3xl shadow-lg border border-gray-100 p-6 md:p-8 overflow-y-auto mb-8">
+                        <div class="prose max-w-none" id="script-container">
+                            ${htmlParsed}
+                        </div>
+                    </div>
+                    
+                    <div class="mt-auto mb-4 flex flex-col sm:flex-row gap-4 justify-center">
+                        <button onclick="navigate('home')" class="bg-white text-gray-700 border border-gray-300 hover:bg-gray-100 font-bold py-3 px-6 rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 w-full sm:w-auto">
+                            <i data-lucide="home" class="w-5 h-5"></i> Beranda
+                        </button>
+                        <button onclick="resetAndCreateNew()" class="bg-indigo-600 text-white hover:bg-indigo-700 font-bold py-3 px-6 rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 w-full sm:w-auto">
+                            <i data-lucide="plus" class="w-5 h-5"></i> Buat Konten Baru
+                        </button>
+                    </div>
+                </div>
+            `;
+            container.innerHTML = html;
+        }
+
+        function resetAndCreateNew() {
+            state.niche = '';
+            state.titles = [];
+            state.selectedTitle = '';
+            state.scriptContent = '';
+            navigate('platform');
+        }
+
+        // Utility: Copy to Clipboard
+        function copyToClipboard() {
+            const scriptText = state.scriptContent;
+            
+            // Create a temporary textarea to copy text
+            const tempTextArea = document.createElement("textarea");
+            tempTextArea.value = scriptText;
+            document.body.appendChild(tempTextArea);
+            tempTextArea.select();
+            
+            try {
+                document.execCommand('copy');
+                const copyBtn = document.getElementById('copy-text');
+                const copyIcon = document.querySelector('#copy-btn i');
+                
+                copyBtn.innerText = "Tersalin!";
+                copyIcon.setAttribute('data-lucide', 'check');
+                lucide.createIcons();
+                
+                setTimeout(() => {
+                    copyBtn.innerText = "Salin Teks";
+                    copyIcon.setAttribute('data-lucide', 'copy');
+                    lucide.createIcons();
+                }, 2000);
+            } catch (err) {
+                alert('Gagal menyalin teks.');
+            } finally {
+                document.body.removeChild(tempTextArea);
+            }
+        }
+
+        // Initialize App
+        document.addEventListener('DOMContentLoaded', () => {
+            render();
+        });
+
+    </script>
+</body>
+</html>
